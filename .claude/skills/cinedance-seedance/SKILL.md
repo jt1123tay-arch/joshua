@@ -1,5 +1,6 @@
 ---
-name: CINEDANCE Seedance 镜头导演
+name: cinedance-seedance
+display_name: CINEDANCE Seedance 镜头导演
 description: >-
   面向 Seedance 生视频的镜头导演手册：约束分镜规划（shot_plan）与
   视频提示词（video_prompt）的运镜、第一帧与空间站位写法。
