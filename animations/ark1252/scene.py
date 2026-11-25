@@ -144,12 +144,9 @@ M["led_off"] = node_mat("led_off", (0.03, 0.035, 0.03), rough=0.3)
 M["clear"] = node_mat("clearplastic", (0.95, 0.95, 0.95), rough=0.12, trans=1.0, ior=1.49)
 M["boot"] = node_mat("boot", (0.03, 0.16, 0.55), rough=0.55, bump=(1500, 0.05))
 M["cable"] = node_mat("cable", (0.025, 0.14, 0.5), rough=0.45, coat=0.2)
-M["glove"] = node_mat("glove", (0.045, 0.05, 0.058), rough=0.6, bump=(2500, 0.35, 6))
+M["glove"] = node_mat("glove", (0.025, 0.027, 0.032), rough=0.55, bump=(2500, 0.35, 6))
 M["sleeve"] = node_mat("sleeve", (0.025, 0.045, 0.11), rough=0.9, bump=(700, 0.5, 8))
 M["cuff"] = node_mat("cuff", (0.02, 0.022, 0.03), rough=0.85, bump=(1800, 0.4))
-M["enclosure"] = node_mat("enclosure", (0.62, 0.63, 0.6), rough=0.35, bump=(300, 0.05))
-M["estop_red"] = node_mat("estop_red", (0.55, 0.02, 0.02), rough=0.25, coat=0.6)
-M["estop_yel"] = node_mat("estop_yel", (0.9, 0.65, 0.02), rough=0.4)
 M["esd"] = node_mat("esd", (0.12, 0.2, 0.17), rough=0.8, bump=(120, 0.15))
 M["benchframe"] = node_mat("benchframe", (0.25, 0.27, 0.3), metal=0.6, rough=0.4)
 M["wire_colors"] = [node_mat(f"w{i}", c, rough=0.4) for i, c in enumerate([
@@ -157,121 +154,170 @@ M["wire_colors"] = [node_mat(f"w{i}", c, rough=0.4) for i, c in enumerate([
     (0.9, 0.9, 0.9), (0.05, 0.5, 0.08), (0.9, 0.88, 0.85), (0.25, 0.12, 0.04)])]
 
 # ------------------------------------------------------------- ARK-1252 box
-BASE_Z = 1.12          # bottom of the box (it sits on an enclosure on the bench)
-W, D, H = 0.200, 0.140, 0.050
-ZC = BASE_Z + H / 2    # port centre line
-LAN1 = Vector((-0.040, 0.0, ZC))
+# Upright "book" chassis modelled from the reference photo (reference/ark1252_front.png).
+# Front-panel layout is given in mm: u = from the left edge, v = from the top edge.
+BW, BD, BH = 0.072, 0.130, 0.200      # width (front), depth, height
+BX0, BZ0 = -BW / 2, 1.0               # left edge, bottom (stands on the bench mat)
+BZ1 = BZ0 + BH
 
-chassis = boxes("ARK-1252", [((0, D / 2, ZC), (W, D, H))], M["chassis"], bevel=0.0015)
-# fins
+def fp(u, v):
+    return BX0 + u / 1000.0, BZ1 - v / 1000.0
+
+M["panel"] = node_mat("panel", (0.035, 0.036, 0.038), metal=0.3, rough=0.55, bump=(1200, 0.06))
+M["portmetal"] = node_mat("portmetal", (0.55, 0.56, 0.58), metal=1.0, rough=0.32)
+M["band"] = node_mat("band", (0.80, 0.81, 0.82), metal=1.0, rough=0.28, bump=(80, 0.03))
+M["labelblue"] = node_mat("labelblue", (0.015, 0.04, 0.16), rough=0.4)
+M["white"] = node_mat("white", (0.9, 0.9, 0.9), rough=0.5)
+M["audio_g"] = node_mat("audio_g", (0.35, 0.75, 0.25), rough=0.35)
+M["audio_p"] = node_mat("audio_p", (0.8, 0.4, 0.65), rough=0.35)
+M["pwr_white"] = node_mat("pwr_white", (0.85, 0.85, 0.85), rough=0.3, emit=(1, 1, 1), emit_str=0.6)
+
+LAN_U = 11.0
+LAN_V = (70.3, 97.1, 124.4)
+x, z = fp(LAN_U, LAN_V[0]); LAN1 = Vector((x, 0.0, z))
+
+chassis = boxes("ARK-1252", [((0, BD / 2, BZ0 + BH / 2), (BW, BD, BH))], M["panel"], bevel=0.0012)
+# vertical cooling fins on both sides
 fins = []
-n = 20
-for i in range(n):
-    x = -0.094 + i * (0.188 / (n - 1))
-    fins.append(((x, D / 2, BASE_Z + H + 0.005), (0.0016, D - 0.01, 0.010)))
-boxes("fins", fins, M["fins"], bevel=0.0003)
-# side mounting brackets
-boxes("brackets", [((-W / 2 - 0.009, 0.03, BASE_Z + 0.001), (0.018, 0.03, 0.002)),
-                   ((W / 2 + 0.009, 0.03, BASE_Z + 0.001), (0.018, 0.03, 0.002)),
-                   ((-W / 2 - 0.009, 0.11, BASE_Z + 0.001), (0.018, 0.03, 0.002)),
-                   ((W / 2 + 0.009, 0.11, BASE_Z + 0.001), (0.018, 0.03, 0.002))],
-      M["fins"], bevel=0.0004)
+y = 0.017
+while y < BD - 0.004:
+    for sx in (-1, 1):
+        fins.append(((sx * (BW / 2 + 0.0025), y, BZ0 + BH / 2), (0.005, 0.0019, BH - 0.0015)))
+    y += 0.0046
+boxes("fins", fins, M["fins"], bevel=0.0004)
+# brushed band on the right edge of the front, thin edge on the left
+boxes("band_r", [((0.0292, 0.0065, BZ0 + BH / 2), (0.0148, 0.0146, BH))], M["band"], bevel=0.0009)
+boxes("band_l", [((-0.0352, 0.0065, BZ0 + BH / 2), (0.0022, 0.0146, BH))], M["band"], bevel=0.0004)
+boxes("panel_lip", [((-0.0068, -0.0003, BZ1 - 0.0016), (0.0546, 0.0006, 0.0028)),
+                    ((-0.0068, -0.0003, BZ0 + 0.0016), (0.0546, 0.0006, 0.0028))], M["fins"])
 
-# port openings (cutters)
-cut = []
-DEP = 0.022
-def opening(x, z, w, h):
-    cut.append(((x, DEP / 2 - 0.004, z), (w, DEP + 0.008, h)))
-for x in (-0.040, -0.022):                      # LAN1, LAN2 (RJ45)
-    opening(x, ZC, 0.0146, 0.0122)
-    opening(x, ZC - 0.0072, 0.0064, 0.0030)     # latch notch (bottom)
-opening(-0.003, ZC - 0.0066, 0.0134, 0.0060)    # USB lower
-opening(-0.003, ZC + 0.0066, 0.0134, 0.0060)    # USB upper
-opening(0.018, ZC, 0.0152, 0.0058)              # HDMI
-cutter = boxes("cutter", cut, M["blackplastic"])
+# openings: (u, v, w, h) in mm
+OPEN = []
+for v in LAN_V:
+    OPEN += [(LAN_U, v, 8.7, 12.2), (LAN_U + 5.45, v, 2.2, 6.4),       # RJ45 + latch notch (+x side)
+             (21.6, v, 5.9, 12.8), (30.0, v, 5.9, 12.8)]                # USB pair (vertical)
+OPEN += [(21.6, 152.5, 5.9, 12.8), (30.3, 152.5, 3.0, 8.8),            # USB 7, Type-C
+         (19.5, 177.0, 5.2, 16.4), (31.0, 177.5, 6.0, 15.2)]            # DP, HDMI
+DEP = 0.020
+def cut_items(pad=0.0):
+    out = []
+    for u, v, w_, h_ in OPEN:
+        cx, cz = fp(u, v)
+        out.append(((cx, DEP / 2 - 0.006, cz), ((w_ + pad) / 1000, DEP + 0.012, (h_ + pad) / 1000)))
+    return out
+cutter = boxes("cutter", cut_items(), M["portmetal"])
 cutter.hide_render = True; cutter.display_type = "WIRE"
-bo = chassis.modifiers.new("ports", "BOOLEAN")
-bo.object = cutter; bo.solver = "EXACT"; bo.use_self = True; bo.use_hole_tolerant = True
-try:
-    bo.material_mode = "TRANSFER"
-except Exception:
-    pass
-chassis.data.materials.append(M["blackplastic"])
-
-# RJ45 contacts inside the jacks
-det = []
-for x0 in (-0.040, -0.022):
+def bool_cut(ob):
+    bo = ob.modifiers.new("ports", "BOOLEAN")
+    bo.object = cutter; bo.solver = "EXACT"; bo.use_self = True; bo.use_hole_tolerant = True
+    try:
+        bo.material_mode = "TRANSFER"
+    except Exception:
+        pass
+bool_cut(chassis)
+# grey metal port frames (one block per LAN row, single frames elsewhere)
+frames_ = []
+for v in LAN_V:
+    cx, cz = fp(18.8, v); frames_.append(((cx, -0.0003, cz), (0.0308, 0.0006, 0.0160)))
+for u, v, w_, h_ in ((21.6, 152.5, 5.9, 12.8), (19.5, 177.0, 5.2, 16.4), (31.0, 177.5, 6.0, 15.2)):
+    cx, cz = fp(u, v); frames_.append(((cx, -0.0003, cz), ((w_ + 2.2) / 1000, 0.0006, (h_ + 2.2) / 1000)))
+pf = boxes("port_frames", frames_, M["portmetal"], bevel=0.0002)
+bool_cut(pf)
+# dark interiors
+backs = []
+for u, v, w_, h_ in OPEN:
+    cx, cz = fp(u, v); backs.append(((cx, 0.0135, cz), (w_ / 1000, 0.001, h_ / 1000)))
+boxes("port_backs", backs, M["blackplastic"])
+# RJ45 inside: dark body + gold contacts on the left ("top") side
+rj, gold = [], []
+for v in LAN_V:
+    cx, cz = fp(LAN_U, v)
+    rj.append(((cx + 0.0015, 0.0105, cz), (0.0050, 0.006, 0.0110)))
     for k in range(8):
-        x = x0 - 0.00357 + k * 0.00102
-        det.append(((x, 0.012, ZC + 0.0046), (0.00035, 0.012, 0.0006)))
-boxes("rj45_contacts", det, M["gold"])
-# USB tongues, HDMI tongue
-boxes("usb_tongues", [((-0.003, 0.010, ZC - 0.0066 + 0.0012), (0.0112, 0.016, 0.0018)),
-                      ((-0.003, 0.010, ZC + 0.0066 + 0.0012), (0.0112, 0.016, 0.0018))], M["usbblue"])
-boxes("usb_shell", [((-0.003, 0.0004, ZC - 0.0066), (0.0136, 0.0008, 0.0062)),
-                    ((-0.003, 0.0004, ZC + 0.0066), (0.0136, 0.0008, 0.0062))], M["silver"])
-boxes("hdmi_tongue", [((0.018, 0.010, ZC + 0.0004), (0.0118, 0.016, 0.0015))], M["blackplastic"])
+        gold.append(((cx - 0.0036, 0.0085, cz - 0.00357 + k * 0.00102), (0.0007, 0.009, 0.00035)))
+boxes("rj45_inner", rj, M["blackplastic"]); boxes("rj45_contacts", gold, M["gold"])
+# tongues: USB (black / blue), Type-C, DP, HDMI
+tg_black, tg_blue = [], []
+for i, v in enumerate(LAN_V):
+    for u in (21.6, 30.0):
+        cx, cz = fp(u, v)
+        (tg_blue if (i == 2 and u == 30.0) else tg_black).append(((cx - 0.0011, 0.007, cz), (0.0018, 0.012, 0.0112)))
+cx, cz = fp(21.6, 152.5); tg_blue.append(((cx - 0.0011, 0.007, cz), (0.0018, 0.012, 0.0112)))
+cx, cz = fp(30.3, 152.5); tg_black.append(((cx, 0.006, cz), (0.0007, 0.010, 0.0066)))
+cx, cz = fp(19.5, 177.0); tg_black.append(((cx + 0.0008, 0.007, cz), (0.0013, 0.012, 0.0140)))
+cx, cz = fp(31.0, 177.5); tg_black.append(((cx + 0.0008, 0.007, cz), (0.0013, 0.012, 0.0130)))
+boxes("tongues_black", tg_black, M["blackplastic"]); boxes("tongues_blue", tg_blue, M["usbblue"])
 
-# LAN LEDs (top corners of each jack)
-link_led = boxes("led_link", [((-0.040 - 0.0050, -0.0002, ZC + 0.0082), (0.0030, 0.0008, 0.0018))], M["led_link"])
-act_led = boxes("led_act", [((-0.040 + 0.0050, -0.0002, ZC + 0.0082), (0.0030, 0.0008, 0.0018))], M["led_act"])
-boxes("led_lan2", [((-0.022 - 0.0050, -0.0002, ZC + 0.0082), (0.0030, 0.0008, 0.0018)),
-                   ((-0.022 + 0.0050, -0.0002, ZC + 0.0082), (0.0030, 0.0008, 0.0018))], M["led_off"])
+# LAN LEDs on the left of each jack (top = link, bottom = activity)
+def led_box(u, v):
+    cx, cz = fp(u, v); return ((cx, -0.0004, cz), (0.0016, 0.0008, 0.0030))
+link_led = boxes("led_link", [led_box(5.2, LAN_V[0] - 4.4)], M["led_link"])
+act_led = boxes("led_act", [led_box(5.2, LAN_V[0] + 4.4)], M["led_act"])
+boxes("led_other", [led_box(5.2, v + d) for v in LAN_V[1:] for d in (-4.4, 4.4)], M["led_off"])
 
-# COM (DE-9 male)
-cx = 0.054
-boxes("db9_flange", [((cx, -0.0005, ZC), (0.0310, 0.0010, 0.0125))], M["silver"], bevel=0.0004)
-def trapezoid(name, cx, y0, y1, zc, top, bot, h, mat):
+# power button, screw holes, audio jacks
+cx, cz = fp(29.3, 18.75)
+cyl("pwr_btn", (cx, -0.0006, cz), 0.0046, 0.0014, M["blackplastic"])
+cyl("pwr_dot", (cx, -0.0014, cz), 0.0015, 0.0003, M["pwr_white"])
+for u, v in ((8.6, 14.4), (9.4, 160.6)):
+    cx, cz = fp(u, v)
+    cyl("screw_hole", (cx, -0.0001, cz), 0.0030, 0.0004, node_mat("hole", (0.01, 0.01, 0.01), rough=0.8))
+for v, mat in ((33.1, M["audio_g"]), (48.8, M["audio_p"])):
+    cx, cz = fp(25.2, v)
+    cyl("audio", (cx, -0.0009, cz), 0.0034, 0.0018, mat)
+    cyl("audio_hole", (cx, -0.0019, cz), 0.0017, 0.0003, M["blackplastic"])
+
+# DIO (DE-9, vertical)
+def prism_xz(name, pts, y0, y1, mat):
     me = bpy.data.meshes.new(name); bm = bmesh.new()
-    pts = [(-top / 2, h / 2), (top / 2, h / 2), (bot / 2, -h / 2), (-bot / 2, -h / 2)]
-    vs = []
-    for y in (y0, y1):
-        vs.append([bm.verts.new((cx + px, y, zc + pz)) for px, pz in pts])
-    for i in range(4):
-        j = (i + 1) % 4
-        bm.faces.new([vs[0][i], vs[0][j], vs[1][j], vs[1][i]])
-    bm.faces.new(vs[0][::-1]); bm.faces.new(vs[1])
+    rings = [[bm.verts.new((px, yy, pz)) for px, pz in pts] for yy in (y0, y1)]
+    n_ = len(pts)
+    for i in range(n_):
+        j = (i + 1) % n_
+        bm.faces.new([rings[0][i], rings[0][j], rings[1][j], rings[1][i]])
+    bm.faces.new(rings[0][::-1]); bm.faces.new(rings[1])
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     bm.to_mesh(me); bm.free()
     ob = link(bpy.data.objects.new(name, me)); me.materials.append(mat)
     return ob
-trapezoid("db9_shell", cx, -0.0062, -0.0008, ZC, 0.0170, 0.0142, 0.0082, M["silver"])
-trapezoid("db9_insert", cx, -0.0064, -0.0010, ZC, 0.0150, 0.0124, 0.0064, M["blackplastic"])
-pins = []
-for k in range(5):
-    pins.append(((cx - 0.0055 + k * 0.00277, -0.0072, ZC + 0.0014), (0.0010, 0.0020, 0.0010)))
-for k in range(4):
-    pins.append(((cx - 0.0042 + k * 0.00277, -0.0072, ZC - 0.0014), (0.0010, 0.0020, 0.0010)))
-boxes("db9_pins", pins, M["gold"])
-for dx in (-0.0125, 0.0125):
-    cyl("standoff", (cx + dx, -0.0028, ZC), 0.0025, 0.0050, M["silver"], verts=6)
+dx, dz = fp(7.5, 41.3)
+boxes("dio_flange", [((dx, -0.0005, dz), (0.0125, 0.0010, 0.0310))], M["portmetal"], bevel=0.0004)
+prism_xz("dio_shell", [(dx - 0.0041, dz - 0.0085), (dx - 0.0041, dz + 0.0085),
+                       (dx + 0.0041, dz + 0.0071), (dx + 0.0041, dz - 0.0071)], -0.0062, -0.0008, M["portmetal"])
+prism_xz("dio_insert", [(dx - 0.0032, dz - 0.0075), (dx - 0.0032, dz + 0.0075),
+                        (dx + 0.0032, dz + 0.0063), (dx + 0.0032, dz - 0.0063)], -0.0064, -0.0010, M["blackplastic"])
+dpins = [((dx - 0.0014, -0.0072, dz - 0.00554 + k * 0.00277), (0.0010, 0.0020, 0.0010)) for k in range(5)]
+dpins += [((dx + 0.0014, -0.0072, dz - 0.004155 + k * 0.00277), (0.0010, 0.0020, 0.0010)) for k in range(4)]
+boxes("dio_pins", dpins, M["gold"])
+for ddz in (-0.0125, 0.0125):
+    cyl("standoff", (dx, -0.0028, dz + ddz), 0.0025, 0.0050, M["portmetal"], verts=6)
 
-# DC-in terminal block (green, 2-pin) + power button with blue ring LED
-boxes("dc_term", [((-0.066, -0.004, ZC), (0.0102, 0.0085, 0.0105))], M["termgreen"], bevel=0.0005)
-boxes("dc_holes", [((-0.0685, -0.0084, ZC - 0.0018), (0.0032, 0.0010, 0.0032)),
-                   ((-0.0635, -0.0084, ZC - 0.0018), (0.0032, 0.0010, 0.0032))], M["blackplastic"])
-cyl("dc_screws1", (-0.0685, -0.0060, ZC + 0.0055), 0.0015, 0.0005, M["silver"], rot=(0, 0, 0))
-cyl("dc_screws2", (-0.0635, -0.0060, ZC + 0.0055), 0.0015, 0.0005, M["silver"], rot=(0, 0, 0))
-cyl("pwr_btn", (-0.085, -0.0008, ZC), 0.0036, 0.0016, M["silver"])
-bpy.ops.mesh.primitive_torus_add(major_radius=0.0046, minor_radius=0.0005, location=(-0.085, -0.0002, ZC),
-                                 rotation=(math.radians(90), 0, 0))
-bpy.context.object.data.materials.append(M["pwr_led"])
+# printing (vertical, reading top-to-bottom like the real unit)
+def vtext(body, u_c, v0, size_mm, mat, y=-0.0002):
+    cu = bpy.data.curves.new("txt", "FONT")
+    cu.body = body; cu.size = size_mm / 1000; cu.extrude = 0.00004
+    ob = link(bpy.data.objects.new("vtxt_" + body, cu)); cu.materials.append(mat)
+    x0, z0 = fp(u_c - size_mm * 0.36, v0)
+    rot = Matrix(((0, 1, 0), (0, 0, -1), (-1, 0, 0)))   # cols: read=-Z, up=+X, normal=-Y
+    ob.matrix_world = Matrix.Translation((x0, y, z0)) @ rot.to_4x4()
+    return ob
+vtext("DIO", 16.4, 36.5, 2.6, M["white"])
+for v, lbl in zip(LAN_V, ("USB 1/2", "USB 3/4", "USB 5/6")):
+    vtext(lbl, 36.4, v - 6.5, 2.5, M["white"])
+vtext("Type-C", 36.0, 145.5, 2.4, M["white"])
+vtext("USB 7", 26.6, 147.0, 2.3, M["white"])
+vtext("DP", 25.0, 174.5, 2.4, M["white"])
+vtext("HDMI", 37.0, 171.5, 2.4, M["white"])
+vtext("LAN", 2.0, 93.0, 2.4, M["white"])
+lx, _ = fp(2.0, 0)
+boxes("lan_line", [((lx, -0.0002, fp(0, 79.0)[1]), (0.0003, 0.0002, 0.024)),
+                   ((lx, -0.0002, fp(0, 114.0)[1]), (0.0003, 0.0002, 0.022))], M["white"])
+bx, bz = fp(65.2, 28.5)
+boxes("brand_label", [((bx, -0.00085, bz), (0.0062, 0.0001, 0.043))], M["labelblue"])
+vtext("ADVANTECH", 65.2, 9.0, 5.4, M["white"], y=-0.00092)
+vtext("ARK-1252", 65.2, 53.0, 5.0, M["blackplastic"], y=-0.00085)
 
-# printing
-text("ARK-1252", (-0.093, -0.0002, BASE_Z + H - 0.0105), 0.0060, M["print"])
-for lbl, x in (("LAN1", -0.040), ("LAN2", -0.022), ("USB", -0.003), ("HDMI", 0.018), ("COM", 0.054),
-               ("DC IN", -0.066), ("PWR", -0.085)):
-    text(lbl, (x, -0.0002, BASE_Z + 0.0045), 0.0024, M["print"], align="CENTER")
-
-# ------------------------------------------------------------- bench / enclosure
-boxes("enclosure", [((0.0, 0.11, 1.06), (0.34, 0.26, 0.12))], M["enclosure"], bevel=0.003)
-boxes("enc_gasket", [((0.0, -0.0205, 1.06), (0.33, 0.001, 0.11))], M["blackplastic"])
-cyl("estop_base", (0.125, -0.024, 1.06), 0.022, 0.006, M["estop_yel"])
-cyl("estop_cap", (0.125, -0.034, 1.06), 0.016, 0.014, M["estop_red"])
-cyl("lamp_g", (0.07, -0.022, 1.075), 0.007, 0.004, node_mat("lamp_g", (0.1, 0.4, 0.1), rough=0.2, emit=(0.2, 1, 0.2), emit_str=6))
-cyl("lamp_w", (0.07, -0.022, 1.045), 0.007, 0.004, M["silver"])
-text("MAIN CONTROL", (-0.15, -0.021, 1.085), 0.009, M["blackplastic"])
-
+# ------------------------------------------------------------- bench
 boxes("bench_top", [((0.0, 0.05, 0.98), (1.8, 0.8, 0.04))], M["benchframe"], bevel=0.002)
 boxes("esd_mat", [((0.0, 0.05, 1.0015), (1.7, 0.72, 0.003))], M["esd"], bevel=0.001)
 boxes("bench_legs", [((x, y, 0.48), (0.05, 0.05, 0.96)) for x in (-0.85, 0.85) for y in (-0.3, 0.4)], M["benchframe"])
@@ -425,11 +471,11 @@ ellipsoid((0.050, -0.160, -0.034), (0.028, 0.022, 0.034))       # glove cuff
 
 # forearm in a work-jacket sleeve
 fa0 = Vector((0.052, -0.165, -0.034))
-fdir = Vector((0.80, -0.48, -0.30)).normalized()
+fdir = Vector((0.73, -0.40, -0.55)).normalized()
 cu = bpy.data.curves.new("sleeve", "CURVE"); cu.dimensions = "3D"
 cu.bevel_depth = 0.043; cu.bevel_resolution = 8; cu.use_fill_caps = True
 sp = cu.splines.new("BEZIER"); sp.bezier_points.add(2)
-for i, (t, rad) in enumerate(((0.0, 1.0), (0.18, 1.12), (0.45, 1.2))):
+for i, (t, rad) in enumerate(((0.0, 1.0), (0.25, 1.12), (0.95, 1.25))):
     p = sp.bezier_points[i]; p.co = fa0 + fdir * t; p.radius = rad
     p.handle_left_type = p.handle_right_type = "AUTO"
 sleeve = link(bpy.data.objects.new("sleeve", cu)); sleeve.parent = hand
@@ -462,14 +508,14 @@ tc.track_axis = "TRACK_NEGATIVE_Z"; tc.up_axis = "UP_Y"
 SEAT = LAN1 + Vector((0, 0.0135, 0))
 def plug_pose(f):
     """returns (location, euler) of plug tip"""
-    start = SEAT + Vector((0.20, -0.24, 0.085))
+    start = SEAT + Vector((0.13, -0.24, 0.14))
     near = SEAT + Vector((0.0, -0.030, 0.002))
     align = SEAT + Vector((0.0, -0.0155, 0.0))
     r0 = Vector((0.20, -0.35, 0.55)); r1 = Vector((0.03, 0.05, 0.06))
     if f <= 42:
         t = smoother((f - 1) / 41)
         # arc in through a mid point
-        mid = SEAT + Vector((0.09, -0.12, 0.05))
+        mid = SEAT + Vector((0.055, -0.12, 0.065))
         a = vlerp(start, mid, t); b_ = vlerp(mid, near, t)
         loc = a.lerp(b_, t)
         rot = r0.lerp(r1, smooth(t))
@@ -487,9 +533,11 @@ def plug_pose(f):
         loc = SEAT.copy(); rot = Vector((0, 0, 0))
     return loc, Euler(rot)
 
+R0 = Matrix.Rotation(math.radians(-90), 4, "Y")   # plug top -> -X, latch -> +X
+
 def plug_matrix(f):
     loc, rot = plug_pose(f)
-    return Matrix.Translation(loc) @ rot.to_matrix().to_4x4()
+    return Matrix.Translation(loc) @ rot.to_matrix().to_4x4() @ R0
 
 def hand_matrix(f):
     REL = 80
@@ -500,8 +548,8 @@ def hand_matrix(f):
         return m
     t = smoother((f - REL) / (F_END - REL) * 1.25)
     base = hand_matrix(REL)
-    off = Vector((0.24, -0.20, 0.09)) * t
-    rot = Euler((0.0, -0.25 * t, -0.35 * t)).to_matrix().to_4x4()
+    off = Vector((0.10, -0.22, 0.17)) * t
+    rot = Euler((0.3 * t, 0.0, -0.25 * t)).to_matrix().to_4x4()
     piv = base.to_translation()
     return Matrix.Translation(piv + off) @ rot @ Matrix.Translation(-piv) @ base
 
@@ -510,11 +558,11 @@ def cam_loc(f):
     shake = Vector((math.sin(f * 0.37) + 0.5 * math.sin(f * 0.91 + 1.3),
                     0.4 * math.sin(f * 0.23 + 0.7),
                     math.sin(f * 0.29 + 2.1) + 0.4 * math.sin(f * 1.07))) * 0.0006
-    return vlerp((-0.215, -0.40, 1.225), (-0.165, -0.315, 1.200), t) + shake
+    return vlerp((-0.30, -0.50, 1.235), (-0.20, -0.355, 1.205), t) + shake
 
 def look_loc(f):
     t = smooth((f - 1) / (F_END - 1))
-    return vlerp((-0.005, -0.03, 1.150), (-0.025, -0.005, 1.146), t)
+    return vlerp((0.005, -0.02, 1.098), (-0.012, -0.005, 1.128), t)
 
 def tangent_pts(pts, t0):
     """free handles: Catmull-Rom; first tangent forced to t0"""
@@ -537,8 +585,8 @@ def cable_pts(f):
     p0 = m @ Vector((0, -0.040, 0))
     p1 = m @ Vector((0, -0.115, -0.004))
     axis = (m.to_3x3() @ Vector((0, -1, 0))).normalized()
-    p4 = Vector((-0.75, -0.30, 1.0035))
-    p3 = Vector((-0.28, -0.29, 1.0035))
+    p4 = Vector((-0.70, -0.33, 1.0035))
+    p3 = Vector((-0.20, -0.30, 1.0035))
     p2 = (p1 + p3) / 2 + Vector((0, -0.03, -0.06))
     p2.z = max(p2.z, 1.0035)
     pts = [p0, p1, p2, p3, p4]
@@ -571,19 +619,17 @@ for f in (1, 74, 79, 84):
         e.co = b0 + d * rt
         e.keyframe_insert("co", frame=f)
 
-# LEDs (constant interpolation)
-prefs.keyframe_new_interpolation_type = "CONSTANT"
+# LEDs: link turns on when the plug clicks in, activity blinks after that (keyed every frame)
 lk = M["led_link"].node_tree.nodes["Principled BSDF"].inputs["Emission Strength"]
 ak = M["led_act"].node_tree.nodes["Principled BSDF"].inputs["Emission Strength"]
-lk.default_value = 0; lk.keyframe_insert("default_value", frame=1)
-lk.default_value = 14; lk.keyframe_insert("default_value", frame=73)
-ak.default_value = 0; ak.keyframe_insert("default_value", frame=1)
 on = False
-for f in range(77, F_END + 1):
-    if random.random() < 0.45:
+for f in range(1, F_END + 1):
+    lk.default_value = 14 if f >= 73 else 0
+    lk.keyframe_insert("default_value", frame=f)
+    if f >= 77 and random.random() < 0.45:
         on = not on
-        ak.default_value = 12 if on else 0
-        ak.keyframe_insert("default_value", frame=f)
+    ak.default_value = 12 if (on and f >= 77) else 0
+    ak.keyframe_insert("default_value", frame=f)
 prefs.keyframe_new_interpolation_type = "BEZIER"
 
 # ------------------------------------------------------------- render settings

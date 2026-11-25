@@ -17,5 +17,6 @@ ffmpeg -framerate 24 -i frames/f_%04d.png -c:v libx264 -pix_fmt yuv420p -crf 18 
 
 ## 說明
 
-- ARK-1252 的外觀和接口排列（PWR、DC IN、LAN1/LAN2、USB×2、HDMI、COM）是近似值，因為製作時無法取得官方規格書。要修正的話，改 `scene.py` 裡的接口座標即可。
+- ARK-1252 的外觀照 `reference/ark1252_front.png` 建模：直立機身、兩側直向散熱鰭片、右側銀色飾條（ADVANTECH／ARK-1252 直排字）。正面接口由上到下是：電源鍵、DIO（DB9）、音源孔×2、3 組「LAN＋USB×2」、USB 7＋Type-C、DP＋HDMI。
+- 正面接口位置在 `scene.py` 的 `OPEN` 清單，用「距左緣 u mm、距上緣 v mm」表示。機身尺寸（72×130×200 mm）是從照片比例估算的，有規格書可再修正 `BW`、`BD`、`BH`。
 - 有 GPU 的機器可以把 `sc.cycles.device` 改成 `"GPU"`，並提高解析度和 samples。
