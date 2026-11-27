@@ -20,10 +20,13 @@ argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else sys.argv[1:]
 ap = argparse.ArgumentParser()
 ap.add_argument("--out", required=True)
 ap.add_argument("--frames", default="1-120")
+ap.add_argument("--step", type=int, default=1)
+ap.add_argument("--check", action="store_true", help="print cable/hand clearance per frame and exit")
 ap.add_argument("--still", type=int, default=0)
 ap.add_argument("--samples", type=int, default=64)
 ap.add_argument("--res", default="960x540")
 ap.add_argument("--blend", default="")
+ap.add_argument("--cam", default="", help="debug: x,y,z,tx,ty,tz[,lens] fixed camera")
 args = ap.parse_args(argv)
 
 FPS = 24
@@ -144,9 +147,7 @@ M["led_off"] = node_mat("led_off", (0.03, 0.035, 0.03), rough=0.3)
 M["clear"] = node_mat("clearplastic", (0.95, 0.95, 0.95), rough=0.12, trans=1.0, ior=1.49)
 M["boot"] = node_mat("boot", (0.03, 0.16, 0.55), rough=0.55, bump=(1500, 0.05))
 M["cable"] = node_mat("cable", (0.025, 0.14, 0.5), rough=0.45, coat=0.2)
-M["glove"] = node_mat("glove", (0.025, 0.027, 0.032), rough=0.55, bump=(2500, 0.35, 6))
-M["sleeve"] = node_mat("sleeve", (0.025, 0.045, 0.11), rough=0.9, bump=(700, 0.5, 8))
-M["cuff"] = node_mat("cuff", (0.02, 0.022, 0.03), rough=0.85, bump=(1800, 0.4))
+M["sleeve"] = node_mat("sleeve", (0.018, 0.030, 0.072), rough=0.85, bump=(900, 0.45, 8), sheen=0.35)
 M["esd"] = node_mat("esd", (0.12, 0.2, 0.17), rough=0.8, bump=(120, 0.15))
 M["benchframe"] = node_mat("benchframe", (0.25, 0.27, 0.3), metal=0.6, rough=0.4)
 M["wire_colors"] = [node_mat(f"w{i}", c, rough=0.4) for i, c in enumerate([
@@ -433,59 +434,273 @@ parts.append(boxes("boot_front", [((0, -0.0225, 0), (0.0128, 0.004, 0.0094))], M
 for p in parts:
     p.parent = plug
 
-# ------------------------------------------------------------- gloved hand (plug-local coordinates)
-hand = empty("HandRoot")
-mb = bpy.data.metaballs.new("glove")
-mb.resolution = 0.004; mb.render_resolution = 0.0016; mb.threshold = 0.6
-glove = link(bpy.data.objects.new("glove", mb)); glove.parent = hand
-mb.materials.append(M["glove"])
-STIFF = 5.0
-K = 0.808  # surface radius / metaball radius at this stiffness
-def capsule(a, b, r):
-    a, b = Vector(a), Vector(b)
-    e = mb.elements.new(type="CAPSULE")
-    e.co = (a + b) / 2; e.radius = r / K; e.stiffness = STIFF
-    d = b - a
-    e.size_x = d.length / 2
-    e.rotation = Vector((1, 0, 0)).rotation_difference(d.normalized())
-    return e
-def ellipsoid(c, half, rot=None):
-    e = mb.elements.new(type="ELLIPSOID")
-    e.co = c; e.radius = 0.05; e.stiffness = STIFF
-    e.size_x, e.size_y, e.size_z = (h / (K * 0.05) for h in half)
-    if rot: e.rotation = rot
-    return e
-fingers = {
-    "thumb": ([(0.030, -0.112, -0.004), (0.027, -0.086, 0.013), (0.016, -0.060, 0.019), (0.002, -0.035, 0.0145)], 0.0092),
-    "index": ([(0.031, -0.070, -0.008), (0.026, -0.047, -0.012), (0.014, -0.034, -0.0150), (0.001, -0.031, -0.0145)], 0.0085),
-    "middle": ([(0.032, -0.074, -0.026), (0.028, -0.051, -0.030), (0.013, -0.046, -0.034), (0.009, -0.059, -0.036)], 0.0086),
-    "ring": ([(0.032, -0.078, -0.043), (0.029, -0.057, -0.047), (0.015, -0.054, -0.050), (0.012, -0.065, -0.051)], 0.0081),
-    "pinky": ([(0.031, -0.083, -0.058), (0.028, -0.068, -0.061), (0.017, -0.064, -0.063), (0.015, -0.072, -0.063)], 0.0072),
-}
-finger_el = {}
-for nm, (pts, r) in fingers.items():
-    finger_el[nm] = [capsule(pts[i], pts[i + 1], r * (1 - 0.06 * i)) for i in range(len(pts) - 1)]
-ellipsoid((0.033, -0.100, -0.032), (0.0135, 0.036, 0.034))
-ellipsoid((0.040, -0.138, -0.031), (0.020, 0.024, 0.029))
-ellipsoid((0.050, -0.160, -0.034), (0.028, 0.022, 0.034))       # glove cuff
+# ------------------------------------------------------------- gloved hand
+# Right hand in its own frame H (metres): origin = wrist centre, +Y towards the
+# fingers, +Z = back of the hand, thumb on the -X side. Fingers and palm are
+# tapered capsules / ellipsoids merged with a voxel remesh, then smoothed and
+# given fabric wrinkles. White knit glove with grey PU coating on the palm side
+# and fingertips; letting go of the plug is a shape key.
+import numpy as np
+from mathutils import noise as mnoise
 
-# forearm in a work-jacket sleeve
-fa0 = Vector((0.052, -0.165, -0.034))
-fdir = Vector((0.73, -0.40, -0.55)).normalized()
-cu = bpy.data.curves.new("sleeve", "CURVE"); cu.dimensions = "3D"
-cu.bevel_depth = 0.043; cu.bevel_resolution = 8; cu.use_fill_caps = True
-sp = cu.splines.new("BEZIER"); sp.bezier_points.add(2)
-for i, (t, rad) in enumerate(((0.0, 1.0), (0.25, 1.12), (0.95, 1.25))):
-    p = sp.bezier_points[i]; p.co = fa0 + fdir * t; p.radius = rad
-    p.handle_left_type = p.handle_right_type = "AUTO"
-sleeve = link(bpy.data.objects.new("sleeve", cu)); sleeve.parent = hand
-cu.materials.append(M["sleeve"])
-bpy.ops.mesh.primitive_torus_add(major_radius=0.041, minor_radius=0.006,
-                                 location=fa0 + fdir * 0.003)
-cuff = bpy.context.object; cuff.name = "sleeve_cuff"; cuff.data.materials.append(M["cuff"])
-cuff.rotation_mode = "QUATERNION"
-cuff.rotation_quaternion = Vector((0, 0, 1)).rotation_difference(fdir)
-cuff.parent = hand
+def _fib(n):
+    ga = math.pi * (3 - math.sqrt(5)); out = []
+    for i in range(n):
+        y = 1 - 2 * (i + 0.5) / n; rr = math.sqrt(max(0.0, 1 - y * y))
+        out.append(Vector((math.cos(ga * i) * rr, y, math.sin(ga * i) * rr)))
+    return out
+UNIT = _fib(120)
+HV, HF = [], []
+
+def ball(c, rad, rot=None):
+    rx, ry, rz = rad if isinstance(rad, (tuple, list)) else (rad, rad, rad)
+    R = rot if rot is not None else Matrix.Identity(3)
+    c = Vector(c)
+    return [c + R @ Vector((u.x * rx, u.y * ry, u.z * rz)) for u in UNIT]
+
+def hull(pts):
+    bm = bmesh.new()
+    for p in pts:
+        bm.verts.new(p)
+    res = bmesh.ops.convex_hull(bm, input=list(bm.verts))
+    junk = list({g for g in res["geom_interior"] + res["geom_unused"] if isinstance(g, bmesh.types.BMVert)})
+    if junk:
+        bmesh.ops.delete(bm, geom=junk, context="VERTS")
+    bm.verts.index_update()
+    off = len(HV)
+    HV.extend(v.co.copy() for v in bm.verts)
+    HF.extend([off + v.index for v in f.verts] for f in bm.faces)
+    bm.free()
+
+SEGS = []   # (chain, i, a, b, ra, rb, dorsal, s0) -> coat mask + release weights
+def chain(name, pts, radii, dorsals):
+    s = 0.0
+    for i in range(len(pts) - 1):
+        a, b = pts[i], pts[i + 1]
+        hull(ball(a, radii[i]) + ball(b, radii[i + 1]))
+        SEGS.append((name, i, a.copy(), b.copy(), radii[i], radii[i + 1], dorsals[i].copy(), s))
+        s += (b - a).length
+    for i in range(1, len(pts) - 1):            # knuckles bulge on the back
+        hull(ball(pts[i] + dorsals[i - 1] * radii[i] * 0.18, radii[i] * 1.0))
+
+def finger_fk(base, d, flex, lens):
+    d = Vector(d).normalized(); n = Vector((0, 0, 1)); n = (n - d * n.dot(d)).normalized()
+    side = d.cross(n)
+    pts, dors = [Vector(base)], []
+    for L, a in zip(lens, flex):
+        R = Matrix.Rotation(math.radians(-a), 3, side)
+        d = R @ d; n = R @ n
+        pts.append(pts[-1] + d * L); dors.append(n.copy())
+    return pts, dors, side
+
+def ik2(root, target, l1, l2, pole):
+    v = target - root; D = min(v.length, (l1 + l2) * 0.995); vh = v.normalized()
+    ca = max(-1.0, min(1.0, (l1 * l1 + D * D - l2 * l2) / (2 * l1 * D)))
+    p = (pole - vh * pole.dot(vh)).normalized()
+    j = root + vh * (l1 * ca) + p * (l1 * math.sqrt(1 - ca * ca))
+    return j, j + (root + vh * D - j).normalized() * l2
+
+FING = {   # MCP, base direction, phalanx lengths (centre to centre), radii MCP/PIP/DIP/tip, flexion
+    "index":  ((-0.031, 0.092, 0.000), (-0.07, 1, 0), (0.040, 0.023, 0.014), (0.0092, 0.0085, 0.0077, 0.0069), (45, 55, 25)),
+    "middle": ((-0.010, 0.097, 0.000), (0.00, 1, 0), (0.044, 0.027, 0.015), (0.0094, 0.0087, 0.0078, 0.0070), (72, 88, 42)),
+    "ring":   ((0.010, 0.093, -0.001), (0.04, 1, 0), (0.041, 0.025, 0.014), (0.0089, 0.0082, 0.0073, 0.0066), (78, 90, 42)),
+    "little": ((0.029, 0.083, -0.003), (0.09, 1, 0), (0.033, 0.018, 0.012), (0.0079, 0.0072, 0.0064, 0.0057), (84, 88, 38)),
+}
+# how the hand sits in the world when the plug is seated: palm down, then
+# yaw (fingers point forward-left), pitch (fingers down), roll (thumb side up)
+PSI, PHI, RHO = 28.0, 10.0, 30.0
+W_HAND = (Matrix.Rotation(math.radians(PSI), 3, "Z") @ Matrix.Rotation(math.radians(-PHI), 3, "X")
+          @ Matrix.Rotation(math.radians(RHO), 3, "Y"))
+U_H = W_HAND.transposed() @ Vector((0, 1, 0))          # plug axis in H
+GRIP = 0.036                                           # grip point behind the plug tip
+BOOT_R = 0.0068 - (GRIP - 0.0235) / 0.021 * 0.0031       # tapered boot radius there
+
+FK = {nm: finger_fk(*spec[:2], spec[4], spec[2]) for nm, spec in FING.items()}
+for nm, spec in FING.items():
+    pts, dors, side = FK[nm]
+    chain(nm, pts, spec[3], dors)
+    hull(ball(pts[0] + Vector((0, 0.002, 1)) * spec[3][0] * 0.32, spec[3][0] * 0.95))   # MCP knuckle
+
+# boot sits against the radial side of the index middle phalanx, thumb presses from the other side
+ipts, idors, iside = FK["index"]
+mid = ipts[1].lerp(ipts[2], 0.65)
+c_dir = (-iside * math.cos(math.radians(30)) - idors[1] * math.sin(math.radians(30)))
+N_P = (c_dir - U_H * c_dir.dot(U_H)).normalized()      # index -> thumb across the boot
+G_H = mid + N_P * (0.0081 + BOOT_R)
+T_TIP = G_H + N_P * (BOOT_R + 0.0089)
+CMC = Vector((-0.026, 0.034, -0.015))
+meta_dir = ((T_TIP - CMC).normalized() + Vector((-0.30, -0.10, -0.30))).normalized()
+T_MCP = CMC + meta_dir * 0.046
+T_IP, T_END = ik2(T_MCP, T_TIP, 0.035, 0.021, Vector((-0.6, 0.0, 0.6)))
+tpts = [CMC, T_MCP, T_IP, T_END]
+tdors = []
+for i in range(3):
+    d = (tpts[i + 1] - tpts[i]).normalized()
+    up = (N_P if i else (Vector((-1, 0, 1)).normalized()))
+    tdors.append((up - d * up.dot(d)).normalized())
+chain("thumb", tpts, (0.0125, 0.0110, 0.0100, 0.0089), tdors)
+
+# palm, thenar / hypothenar pads, first web, wrist and glove cuff
+hull(ball((-0.019, 0.018, -0.002), 0.013) + ball((0.019, 0.018, -0.002), 0.013)
+     + ball((-0.031, 0.090, 0.0), 0.0112) + ball((-0.010, 0.095, 0.0), 0.0116)
+     + ball((0.010, 0.091, -0.001), 0.0110) + ball((0.029, 0.081, -0.003), 0.0098)
+     + ball((-0.016, 0.058, -0.002), 0.0138) + ball((0.017, 0.055, -0.003), 0.0138)
+     + ball((0.032, 0.050, -0.004), 0.0102))
+hull(ball((-0.023, 0.042, -0.012), (0.015, 0.026, 0.014), Matrix.Rotation(math.radians(-25), 3, "Z")))
+hull(ball((0.024, 0.044, -0.009), (0.011, 0.025, 0.011)))
+hull(ball(CMC, 0.009) + ball(T_MCP.lerp(T_IP, 0.12), 0.0062) + ball(Vector((-0.031, 0.088, -0.002)), 0.0072))
+hull(ball((0, 0.006, -0.001), (0.030, 0.006, 0.0205)) + ball((0, -0.052, -0.001), (0.034, 0.006, 0.0240)))
+
+me_src = bpy.data.meshes.new("hand_src"); me_src.from_pydata([tuple(v) for v in HV], [], HF)
+src = link(bpy.data.objects.new("hand_src", me_src))
+mr = src.modifiers.new("remesh", "REMESH"); mr.mode = "VOXEL"; mr.voxel_size = 0.0007; mr.adaptivity = 0.0
+ms = src.modifiers.new("smooth", "SMOOTH"); ms.factor = 0.6; ms.iterations = 6
+wtex = bpy.data.textures.new("wrinkle", "CLOUDS"); wtex.noise_scale = 0.011; wtex.noise_depth = 3
+md = src.modifiers.new("wrinkle", "DISPLACE"); md.texture = wtex; md.texture_coords = "LOCAL"
+md.strength = 0.0014; md.mid_level = 0.5
+md.show_viewport = False     # classify coat / weights on the un-wrinkled surface
+me0 = bpy.data.meshes.new_from_object(src.evaluated_get(bpy.context.evaluated_depsgraph_get()))
+md.show_viewport = True
+me = bpy.data.meshes.new_from_object(src.evaluated_get(bpy.context.evaluated_depsgraph_get()))
+bpy.data.objects.remove(src); bpy.data.meshes.remove(me_src)
+assert len(me0.vertices) == len(me.vertices)
+me.name = "glove"; me.shade_smooth()
+glove = link(bpy.data.objects.new("glove", me))
+
+# per-vertex: nearest bone -> PU coat mask and release weights
+nv = len(me.vertices)
+P = np.empty(nv * 3); me.vertices.foreach_get("co", P); P = P.reshape(-1, 3)
+NN = np.empty(nv * 3); me0.vertex_normals.foreach_get("vector", NN); NN = NN.reshape(-1, 3)
+bpy.data.meshes.remove(me0)
+SA = np.array([s[2] for s in SEGS]); SB = np.array([s[3] for s in SEGS])
+SRA = np.array([s[4] for s in SEGS]); SRB = np.array([s[5] for s in SEGS])
+SD = np.array([s[6] for s in SEGS]); S0 = np.array([s[7] for s in SEGS])
+AB = SB - SA; L2 = (AB ** 2).sum(1)
+kmin = np.zeros(nv, int); dmin = np.zeros(nv); tmin = np.zeros(nv)
+for c0 in range(0, nv, 30000):
+    p = P[c0:c0 + 30000]
+    rel = p[:, None, :] - SA[None]
+    t = np.clip((rel * AB[None]).sum(2) / L2[None], 0, 1)
+    d = np.linalg.norm(rel - t[..., None] * AB[None], axis=2) - (SRA[None] + t * (SRB - SRA)[None])
+    k = d.argmin(1)
+    kmin[c0:c0 + 30000] = k; dmin[c0:c0 + 30000] = d[np.arange(len(k)), k]
+    tmin[c0:c0 + 30000] = t[np.arange(len(k)), k]
+on_finger = dmin < 0.0025
+seg_i = np.array([s[1] for s in SEGS])[kmin]
+dot_d = (NN * SD[kmin]).sum(1)
+def _ss(x):
+    x = np.clip(x, 0, 1); return x * x * (3 - 2 * x)
+coat_f = np.maximum(_ss((0.05 - dot_d) / 0.20), (seg_i == 2) * _ss((tmin - 0.50) / 0.12))
+coat_p = _ss((-NN[:, 2] - 0.15) / 0.30)
+coat = np.where(on_finger, coat_f, coat_p) * _ss((P[:, 1] - 0.012) / 0.008)
+att = me.attributes.new("coat", "FLOAT", "POINT"); att.data.foreach_set("value", coat.astype(np.float32))
+
+def rotate_about(pts, piv, axis, ang):
+    a = np.array(axis.normalized()); v = pts - np.array(piv)
+    c, s = np.cos(ang)[:, None], np.sin(ang)[:, None]
+    return np.array(piv) + v * c + np.cross(a, v) * s + a * (v @ a)[:, None] * (1 - c)
+
+def smoothstep(x):
+    x = np.clip(x, 0, 1); return x * x * (3 - 2 * x)
+
+names = np.array([s[0] for s in SEGS])[kmin]
+s_par = S0[kmin] + tmin * np.sqrt(L2[kmin])
+REL_P = P.copy()
+m_t = on_finger & (names == "thumb")
+w_t = smoothstep((s_par[m_t] - 0.038) / 0.018)
+REL_P[m_t] = rotate_about(P[m_t], T_MCP, (T_END - T_MCP).cross(N_P), np.radians(22) * w_t)
+m_i = on_finger & (names == "index")
+w_i = smoothstep((s_par[m_i] - 0.002) / 0.016)
+REL_P[m_i] = rotate_about(P[m_i], ipts[0], (ipts[3] - ipts[0]).cross(-N_P), np.radians(14) * w_i)
+glove.shape_key_add(name="Basis", from_mix=False)
+SK_REL = glove.shape_key_add(name="release", from_mix=False)
+SK_REL.data.foreach_set("co", REL_P.ravel())
+
+gm = bpy.data.materials.new("glove"); gm.use_nodes = True
+gn = gm.node_tree.nodes; gl = gm.node_tree.links.new
+gn.remove(gn["Principled BSDF"])
+knit = gn.new("ShaderNodeBsdfPrincipled"); pu = gn.new("ShaderNodeBsdfPrincipled")
+knit.inputs["Base Color"].default_value = (0.50, 0.51, 0.52, 1); knit.inputs["Roughness"].default_value = 0.92
+knit.inputs["Sheen Weight"].default_value = 0.45; knit.inputs["Sheen Roughness"].default_value = 0.4
+knit.inputs["Specular IOR Level"].default_value = 0.3
+pu.inputs["Base Color"].default_value = (0.055, 0.058, 0.064, 1); pu.inputs["Roughness"].default_value = 0.48
+tco = gn.new("ShaderNodeTexCoord")
+fuzz = gn.new("ShaderNodeTexNoise"); fuzz.inputs["Scale"].default_value = 2600; fuzz.inputs["Detail"].default_value = 6
+gl(tco.outputs["Object"], fuzz.inputs["Vector"])
+rows = gn.new("ShaderNodeTexWave"); rows.wave_type = "BANDS"; rows.bands_direction = "Y"
+rows.inputs["Scale"].default_value = 700; rows.inputs["Distortion"].default_value = 3.0
+gl(tco.outputs["Object"], rows.inputs["Vector"])
+hgt = gn.new("ShaderNodeMath"); hgt.operation = "MULTIPLY_ADD"; hgt.inputs[1].default_value = 0.5
+gl(rows.outputs["Fac"], hgt.inputs[0]); gl(fuzz.outputs["Fac"], hgt.inputs[2])
+bmp = gn.new("ShaderNodeBump"); bmp.inputs["Strength"].default_value = 0.6; bmp.inputs["Distance"].default_value = 0.0004
+gl(hgt.outputs[0], bmp.inputs["Height"])
+gl(bmp.outputs["Normal"], knit.inputs["Normal"]); gl(bmp.outputs["Normal"], pu.inputs["Normal"])
+attr = gn.new("ShaderNodeAttribute"); attr.attribute_name = "coat"
+edge = gn.new("ShaderNodeTexNoise"); edge.inputs["Scale"].default_value = 140; edge.inputs["Detail"].default_value = 2
+gl(tco.outputs["Object"], edge.inputs["Vector"])
+jit = gn.new("ShaderNodeMath"); jit.operation = "MULTIPLY_ADD"; jit.inputs[1].default_value = 0.07
+gl(edge.outputs["Fac"], jit.inputs[0]); gl(attr.outputs["Fac"], jit.inputs[2])
+mr2 = gn.new("ShaderNodeMapRange")
+mr2.inputs["From Min"].default_value = 0.52; mr2.inputs["From Max"].default_value = 0.56
+gl(jit.outputs[0], mr2.inputs["Value"])
+mix = gn.new("ShaderNodeMixShader")
+gl(mr2.outputs["Result"], mix.inputs["Fac"]); gl(knit.outputs[0], mix.inputs[1]); gl(pu.outputs[0], mix.inputs[2])
+gl(mix.outputs[0], gn["Material Output"].inputs["Surface"])
+me.materials.append(gm)
+
+# work-jacket sleeve with a rib-knit cuff, running back along -Y towards the elbow
+SV, SF = [], []
+ring_n, seg_n, y0, y1 = 90, 160, -0.022, -0.48
+for i in range(ring_n):
+    s = i / (ring_n - 1); y = y0 + (y1 - y0) * s
+    cuffw = 1 - smooth(min(max((s - 0.045) / 0.05, 0), 1))
+    rx = lerp(0.050, 0.036, cuffw) + 0.010 * s; rz = lerp(0.045, 0.030, cuffw) + 0.008 * s
+    bend = Vector((0.11 * s * s, 0, -0.03 * s))      # sags towards the elbow
+    for j in range(seg_n):
+        a = 2 * math.pi * j / seg_n; ca, sa = math.cos(a), math.sin(a)
+        q = Vector((ca * 1.4, y * 16, sa * 1.4))
+        fold = (0.07 * mnoise.noise(q) + 0.03 * mnoise.noise(q * 2.9)) * (1 - cuffw)
+        fold += 0.05 * max(0.0, math.sin(y * 210 + 1.7 * mnoise.noise(q * 0.7))) * (1 - cuffw) * (1 - s) ** 2
+        rib = 0.025 * cuffw * (0.5 + 0.5 * math.cos(a * 44))
+        k = 1 + fold + rib
+        SV.append(Vector((ca * rx * k, y + 0.003 * mnoise.noise(q * 1.7), sa * rz * k)) + bend)
+for i in range(ring_n - 1):
+    for j in range(seg_n):
+        SF.append((i * seg_n + j, i * seg_n + (j + 1) % seg_n, (i + 1) * seg_n + (j + 1) % seg_n, (i + 1) * seg_n + j))
+sme = bpy.data.meshes.new("sleeve"); sme.from_pydata([tuple(v) for v in SV], [], SF); sme.shade_smooth()
+M["cuff"] = node_mat("cuff", (0.016, 0.026, 0.06), rough=0.9, bump=(2200, 0.5, 6), sheen=0.3)
+sme.materials.append(M["sleeve"]); sme.materials.append(M["cuff"])
+sme.polygons.foreach_set("material_index", [1 if (pi // seg_n) <= int(0.05 * (ring_n - 1)) else 0
+                                            for pi in range(len(SF))])
+sleeve = link(bpy.data.objects.new("sleeve", sme))
+so = sleeve.modifiers.new("thick", "SOLIDIFY"); so.thickness = 0.0025; so.offset = -1
+sleeve.modifiers.new("sub", "SUBSURF").levels = 1
+sleeve.modifiers["sub"].render_levels = 1
+
+# H -> plug-local, so the boot lands between thumb and index when the plug is seated
+SEAT = LAN1 + Vector((0, 0.0135, 0))
+R0 = Matrix.Rotation(math.radians(-90), 4, "Y")   # plug top -> -X, latch -> +X
+PM_SEAT = Matrix.Translation(SEAT) @ R0
+B_W = PM_SEAT @ Vector((0, -GRIP, 0))
+HW_SEAT = Matrix.Translation(B_W - W_HAND @ G_H) @ W_HAND.to_4x4()
+HP = PM_SEAT.inverted() @ HW_SEAT
+hand = empty("HandRoot")
+for ob in (glove, sleeve):
+    ob.parent = hand; ob.matrix_basis = HP
+BACK_W = (W_HAND @ Vector((0, -1, 0))).normalized()  # forearm direction in the world
+
+# report clearances at the seated pose
+_pw = np.array([tuple(HW_SEAT @ Vector(v)) for v in P[::7]])
+_inbox = (np.abs(_pw[:, 0]) < BW / 2) & (_pw[:, 2] > BZ0) & (_pw[:, 2] < BZ1)
+_ib = np.where(_inbox)[0]; _k = _ib[_pw[_ib, 1].argmax()] if len(_ib) else None
+print("[hand] verts", nv, "| nearest to panel (mm):", round(-_pw[_k, 1] * 1000, 1) if _k is not None else None,
+      "at H", tuple(np.round(P[::7][_k] * 1000, 1)) if _k is not None else "")
+_pl = np.array([tuple(PM_SEAT.inverted() @ Vector(v)) for v in _pw])
+_bt = (_pl[:, 1] < -0.020) & (_pl[:, 1] > -0.047) & (np.hypot(_pl[:, 0], _pl[:, 2]) < BOOT_R - 0.0008)
+_bd = (np.abs(_pl[:, 0]) < 0.0055) & (_pl[:, 1] < 0) & (_pl[:, 1] > -0.021) & (np.abs(_pl[:, 2]) < 0.0037)
+print("[hand] verts inside boot:", int(_bt.sum()), "inside plug body:", int(_bd.sum()))
+print("[hand] forearm dir (world):", tuple(round(c, 3) for c in BACK_W), "thumb reach ok:",
+      round((T_END - T_TIP).length * 1000, 2), "mm off")
 
 # ------------------------------------------------------------- cable (bezier, keyed per frame)
 ccu = bpy.data.curves.new("cable", "CURVE"); ccu.dimensions = "3D"
@@ -496,7 +711,7 @@ for p in csp.bezier_points:
 cable = link(bpy.data.objects.new("cable", ccu)); ccu.materials.append(M["cable"])
 
 # ------------------------------------------------------------- camera
-cam_d = bpy.data.cameras.new("cam"); cam_d.lens = 50
+cam_d = bpy.data.cameras.new("cam"); cam_d.lens = 50; cam_d.clip_start = 0.01
 cam_d.dof.use_dof = True; cam_d.dof.aperture_fstop = 4.0; cam_d.dof.aperture_blades = 7
 cam = link(bpy.data.objects.new("camera", cam_d)); sc.camera = cam
 look = empty("look"); focus = empty("focus", LAN1 + Vector((0, -0.006, 0)))
@@ -505,17 +720,16 @@ tc = cam.constraints.new("TRACK_TO"); tc.target = look
 tc.track_axis = "TRACK_NEGATIVE_Z"; tc.up_axis = "UP_Y"
 
 # ------------------------------------------------------------- animation
-SEAT = LAN1 + Vector((0, 0.0135, 0))
 def plug_pose(f):
     """returns (location, euler) of plug tip"""
-    start = SEAT + Vector((0.13, -0.24, 0.14))
+    start = SEAT + BACK_W * 0.22 + Vector((0, 0, 0.05))
     near = SEAT + Vector((0.0, -0.030, 0.002))
     align = SEAT + Vector((0.0, -0.0155, 0.0))
     r0 = Vector((0.20, -0.35, 0.55)); r1 = Vector((0.03, 0.05, 0.06))
     if f <= 42:
         t = smoother((f - 1) / 41)
         # arc in through a mid point
-        mid = SEAT + Vector((0.055, -0.12, 0.065))
+        mid = SEAT + BACK_W * 0.11 + Vector((0, -0.025, 0.03))
         a = vlerp(start, mid, t); b_ = vlerp(mid, near, t)
         loc = a.lerp(b_, t)
         rot = r0.lerp(r1, smooth(t))
@@ -533,8 +747,6 @@ def plug_pose(f):
         loc = SEAT.copy(); rot = Vector((0, 0, 0))
     return loc, Euler(rot)
 
-R0 = Matrix.Rotation(math.radians(-90), 4, "Y")   # plug top -> -X, latch -> +X
-
 def plug_matrix(f):
     loc, rot = plug_pose(f)
     return Matrix.Translation(loc) @ rot.to_matrix().to_4x4() @ R0
@@ -546,10 +758,10 @@ def hand_matrix(f):
         if f > 71:   # push-through: hand settles after the click
             m = Matrix.Translation((0, -0.0006 * smooth((f - 71) / 9), 0)) @ m
         return m
-    t = smoother((f - REL) / (F_END - REL) * 1.25)
+    t = smoother((f - REL) / (F_END - REL))
     base = hand_matrix(REL)
-    off = Vector((0.10, -0.22, 0.17)) * t
-    rot = Euler((0.3 * t, 0.0, -0.25 * t)).to_matrix().to_4x4()
+    off = BACK_W * 0.30 * t + Vector((0, 0, 0.02)) * t
+    rot = Euler((0.0, 0.0, -0.15 * t)).to_matrix().to_4x4()
     piv = base.to_translation()
     return Matrix.Translation(piv + off) @ rot @ Matrix.Translation(-piv) @ base
 
@@ -580,10 +792,12 @@ def tangent_pts(pts, t0):
         hl.append(pts[i] - tgn); hr.append(pts[i] + tgn)
     return hl, hr
 
+CABLE_P1 = Vector((-0.030, -0.095, 0.012))   # plug-local: drops under the hand
+
 def cable_pts(f):
     m = plug_matrix(f)
-    p0 = m @ Vector((0, -0.040, 0))
-    p1 = m @ Vector((0, -0.115, -0.004))
+    p0 = m @ Vector((0, -0.044, 0))
+    p1 = m @ CABLE_P1
     axis = (m.to_3x3() @ Vector((0, -1, 0))).normalized()
     p4 = Vector((-0.70, -0.33, 1.0035))
     p3 = Vector((-0.20, -0.30, 1.0035))
@@ -607,17 +821,9 @@ for f in frames:
         p.keyframe_insert("co", frame=f); p.keyframe_insert("handle_left", frame=f)
         p.keyframe_insert("handle_right", frame=f)
 
-# release grip: thumb lifts, index drops (metaball element keys)
-rel_specs = [(finger_el["thumb"][-1], Vector((0.004, -0.004, 0.009))),
-             (finger_el["thumb"][-2], Vector((0.002, -0.002, 0.004))),
-             (finger_el["index"][-1], Vector((0.004, -0.004, -0.008))),
-             (finger_el["index"][-2], Vector((0.002, -0.002, -0.003)))]
-bases = [Vector(e.co) for e, _ in rel_specs]
-for f in (1, 74, 79, 84):
-    rt = smooth((f - 74) / 10)
-    for (e, d), b0 in zip(rel_specs, bases):
-        e.co = b0 + d * rt
-        e.keyframe_insert("co", frame=f)
+# release grip: thumb and index open (shape key)
+for f in [1] + list(range(74, 85)):
+    SK_REL.value = smooth((f - 74) / 10); SK_REL.keyframe_insert("value", frame=f)
 
 # LEDs: link turns on when the plug clicks in, activity blinks after that (keyed every frame)
 lk = M["led_link"].node_tree.nodes["Principled BSDF"].inputs["Emission Strength"]
@@ -631,6 +837,26 @@ for f in range(1, F_END + 1):
     ak.default_value = 12 if (on and f >= 77) else 0
     ak.keyframe_insert("default_value", frame=f)
 prefs.keyframe_new_interpolation_type = "BEZIER"
+
+if args.check:
+    from mathutils.geometry import interpolate_bezier
+    for f in range(1, F_END + 1, 3):
+        sc.frame_set(f)
+        ev = glove.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        em = ev.to_mesh(); nvv = len(em.vertices)
+        Q = np.empty(nvv * 3); em.vertices.foreach_get("co", Q); ev.to_mesh_clear()
+        Q = Q.reshape(-1, 3)[::4]
+        Mw = np.array(glove.matrix_world)
+        Q = Q @ Mw[:3, :3].T + Mw[:3, 3]
+        pts, hl, hr = cable_pts(f)
+        cs = []
+        for i in range(len(pts) - 1):
+            cs += interpolate_bezier(pts[i], hr[i], hl[i + 1], pts[i + 1], 24)
+        C = np.array([tuple(c) for c in cs])
+        dmin_c = min(np.linalg.norm(Q - c, axis=1).min() for c in C) - 0.0029
+        inb = (np.abs(Q[:, 0]) < BW / 2) & (Q[:, 2] > BZ0) & (Q[:, 2] < BZ1) & (Q[:, 1] > -0.0005)
+        print(f"[check] f{f:3d} cable-hand gap {dmin_c * 1000:6.1f} mm | hand verts in box: {int(inb.sum())}")
+    sys.exit(0)
 
 # ------------------------------------------------------------- render settings
 rx, ry = (int(v) for v in args.res.split("x"))
@@ -653,6 +879,12 @@ r.image_settings.file_format = "PNG"
 r.filepath = args.out.rstrip("/") + "/f_"
 if args.blend:
     bpy.ops.wm.save_as_mainfile(filepath=args.blend)
+if args.cam:
+    v = [float(c) for c in args.cam.split(",")]
+    cam.animation_data_clear(); look.animation_data_clear()
+    cam.location = v[:3]; look.location = v[3:6]
+    if len(v) > 6: cam_d.lens = v[6]
+    cam_d.dof.use_dof = False
 if args.still:
     sc.frame_set(args.still)
     r.filepath = args.out.rstrip("/") + f"/still_{args.still:04d}.png"
@@ -660,4 +892,5 @@ if args.still:
 else:
     a, b_ = (int(v) for v in args.frames.split("-"))
     sc.frame_start, sc.frame_end = a, b_
+    sc.frame_step = args.step
     bpy.ops.render.render(animation=True)
