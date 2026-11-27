@@ -1,9 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1621" height="1766" viewBox="-63.22 6.33 405.37 441.54">
+<svg xmlns="http://www.w3.org/2000/svg" width="1464" height="1609" viewBox="-51.50 6.33 366.03 402.21">
   <defs>
-    <linearGradient id="tile" gradientUnits="userSpaceOnUse" x1="-57.2" y1="0" x2="336.2" y2="0"><stop offset="0" stop-color="#2D6BB0"/><stop offset="1" stop-color="#4A9BEA"/></linearGradient>
-    <linearGradient id="frame" gradientUnits="userSpaceOnUse" x1="138" y1="0" x2="286" y2="0"><stop offset="0" stop-color="#4A8FD6"/><stop offset="1" stop-color="#9CCBF6"/></linearGradient>
+    <linearGradient id="tile" gradientUnits="userSpaceOnUse" x1="-45.5" y1="0" x2="308.5" y2="0"><stop offset="0" stop-color="#2D6BB0"/><stop offset="1" stop-color="#4A9BEA"/></linearGradient>
+    <linearGradient id="frame" gradientUnits="userSpaceOnUse" x1="133.3" y1="0" x2="289.4" y2="0"><stop offset="0" stop-color="#4A8FD6"/><stop offset="1" stop-color="#9CCBF6"/></linearGradient>
   </defs>
-  <rect x="-10.53" y="95.19" width="300.00" height="300.00" rx="40.00" transform="rotate(23 139.47 245.19)" fill="url(#tile)" fill-opacity="0.22"/>
+  <rect x="-3.48" y="90.52" width="270.00" height="270.00" rx="43.20" transform="rotate(23 131.52 225.52)" fill="url(#tile)" fill-opacity="0.22"/>
   <rect x="147.25" y="57.85" width="70.50" height="70.50" rx="10.00" transform="rotate(23 182.50 93.10)" fill="none" stroke="url(#frame)" stroke-opacity="0.8" stroke-width="4.5"/>
   <rect x="204.95" y="26.25" width="70.50" height="70.50" rx="10.00" transform="rotate(23 240.20 61.50)" fill="none" stroke="url(#frame)" stroke-opacity="0.8" stroke-width="4.5"/>
 </svg>

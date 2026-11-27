@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1464" height="1464" viewBox="-51.50 42.50 366.03 366.03">
+  <defs>
+    <linearGradient id="tile" gradientUnits="userSpaceOnUse" x1="-45.5" y1="0" x2="308.5" y2="0"><stop offset="0" stop-color="#02427A"/><stop offset="1" stop-color="#278EE1"/></linearGradient>
+    <linearGradient id="frame" gradientUnits="userSpaceOnUse" x1="0.0" y1="0" x2="1.0" y2="0"><stop offset="0" stop-color="#044A89"/><stop offset="1" stop-color="#288DDE"/></linearGradient>
+  </defs>
+  <rect x="-3.48" y="90.52" width="270.00" height="270.00" rx="43.20" transform="rotate(23 131.52 225.52)" fill="url(#tile)" fill-opacity="1.0"/>
+</svg>
