@@ -1,5 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="864" height="905" viewBox="0 0 864 905">
-  <rect x="122.0" y="162.8" width="620.0" height="620.0" rx="93.0" transform="rotate(25 432.0 472.8)" fill="#2D6BB0" fill-opacity="0.26"/>
-  <rect x="267.0" y="57.8" width="230.0" height="230.0" rx="34.5" transform="rotate(25 382.0 172.8)" fill="none" stroke="#4A9BEA" stroke-opacity="0.6" stroke-width="4.17"/>
-  <rect x="68.3" y="168.2" width="230.0" height="230.0" rx="34.5" transform="rotate(25 183.3 283.2)" fill="none" stroke="#4A9BEA" stroke-opacity="0.6" stroke-width="4.17"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1621" height="1766" viewBox="-63.22 6.33 405.37 441.54">
+  <defs>
+    <linearGradient id="tile" gradientUnits="userSpaceOnUse" x1="-57.2" y1="0" x2="336.2" y2="0"><stop offset="0" stop-color="#2D6BB0"/><stop offset="1" stop-color="#4A9BEA"/></linearGradient>
+    <linearGradient id="frame" gradientUnits="userSpaceOnUse" x1="138" y1="0" x2="286" y2="0"><stop offset="0" stop-color="#4A8FD6"/><stop offset="1" stop-color="#9CCBF6"/></linearGradient>
+  </defs>
+  <rect x="-10.53" y="95.19" width="300.00" height="300.00" rx="40.00" transform="rotate(23 139.47 245.19)" fill="url(#tile)" fill-opacity="0.22"/>
+  <rect x="147.25" y="57.85" width="70.50" height="70.50" rx="10.00" transform="rotate(23 182.50 93.10)" fill="none" stroke="url(#frame)" stroke-opacity="0.8" stroke-width="4.5"/>
+  <rect x="204.95" y="26.25" width="70.50" height="70.50" rx="10.00" transform="rotate(23 240.20 61.50)" fill="none" stroke="url(#frame)" stroke-opacity="0.8" stroke-width="4.5"/>
 </svg>
